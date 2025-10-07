@@ -7,6 +7,8 @@
 const CONFIG = {
   SLACK_WEBHOOK_URL: "",
   ALPHA_VANTAGE_API_KEY: "",
+  TODOIST_API_KEY: "",
+  TODO_PROJECT_ID: "",
   WEEKEND_DAYS: [0, 6], // 日曜日と土曜日
   API_ENDPOINTS: {
     STOCK:
@@ -15,8 +17,6 @@ const CONFIG = {
       "https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={from}&to_currency={to}&apikey={apiKey}",
   },
 };
-
-
 
 /**
  * 価格データ取得インターフェース
@@ -197,6 +197,59 @@ class SlackNotifier {
 }
 
 /**
+ * Todoistタスク作成クラス
+ */
+class TodoistTaskCreator {
+  constructor() {
+    this.apiKey = CONFIG.TODOIST_API_KEY;
+    this.apiUrl = "https://api.todoist.com/rest/v2/tasks";
+  }
+
+  /**
+   * Todoistにタスクを追加
+   */
+  createTask(content) {
+    if (!this.apiKey) {
+      Logger.log("Todoist APIキーが設定されていません");
+      return;
+    }
+
+    const payload = {
+      content: content,
+      due_string: "Today",
+      priority: 4, // 優先度1 (最高)
+      project_id: CONFIG.TODO_PROJECT_ID,
+    };
+
+    const options = {
+      method: "POST",
+      contentType: "application/json",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true, // エラー時にもレスポンスボディを読み込む
+    };
+
+    try {
+      const response = UrlFetchApp.fetch(this.apiUrl, options);
+      const responseCode = response.getResponseCode();
+      const responseBody = response.getContentText();
+
+      if (responseCode === 200) {
+        Logger.log("Todoistタスク作成成功");
+      } else {
+        Logger.log(
+          `Todoistタスク作成エラー: ステータスコード ${responseCode}, レスポンス: ${responseBody}`
+        );
+      }
+    } catch (error) {
+      Logger.log(`Todoistタスク作成例外: ${error.message}`);
+    }
+  }
+}
+
+/**
  * 日時ユーティリティ
  */
 function isWeekend() {
@@ -212,6 +265,7 @@ class PriceMonitoringSystem {
     this.priceProvider = new PriceProvider();
     this.priceMonitor = new PriceMonitor(this.priceProvider);
     this.slackNotifier = new SlackNotifier();
+    this.todoistTaskCreator = new TodoistTaskCreator();
   }
 
   /**
@@ -243,6 +297,7 @@ class PriceMonitoringSystem {
     notifications.forEach((notification) => {
       Logger.log(notification);
       this.slackNotifier.sendNotification(notification);
+      this.todoistTaskCreator.createTask(notification);
     });
   }
 }
@@ -267,6 +322,14 @@ function validateConfig() {
 
   if (!CONFIG.SLACK_WEBHOOK_URL) {
     errors.push("SLACK_WEBHOOK_URLが設定されていません");
+  }
+
+  if (!CONFIG.TODOIST_API_KEY) {
+    errors.push("TODOIST_API_KEYが設定されていません");
+  }
+
+  if (!CONFIG.TODO_PROJECT_ID) {
+    errors.push("TODO_PROJECT_IDが設定されていません");
   }
 
   if (errors.length > 0) {
