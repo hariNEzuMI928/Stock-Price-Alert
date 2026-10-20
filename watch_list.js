@@ -1,51 +1,22 @@
 const WATCH_LIST = [
-  {
-    symbol: "USD/JPY",
-    target: 140,
-    isUpperTarget: false,
-    type: "exchange",
-    unit: "円",
-  },
-  {
-    symbol: "USD/JPY",
-    target: 148,
-    isUpperTarget: true,
-    type: "exchange",
-    unit: "円",
-  },
-  {
-    symbol: "EUR/JPY",
-    target: 170,
-    isUpperTarget: false,
-    type: "exchange",
-    unit: "円",
-  },
-  { symbol: "VOO", target: 600, isUpperTarget: true, type: "stock", unit: "$" },
-  {
-    symbol: "TECL",
-    target: 105,
-    isUpperTarget: true,
-    type: "stock",
-    unit: "$",
-  },
-  {
-    symbol: "TSLA",
-    target: 250,
-    isUpperTarget: false,
-    type: "stock",
-    unit: "$",
-  },
-  {
-    symbol: "PYPL",
-    target: 55,
-    isUpperTarget: false,
-    type: "stock",
-    unit: "$",
-  },
-  { symbol: "INTC", target: 40, isUpperTarget: true, type: "stock", unit: "$" },
-];
+  // 為替
+  // { symbol: 'EURJPY=X', target: 170, isUpperTarget: false, type: 'exchange', unit: '円' },
+  // { symbol: 'EURJPY=X', target: 175, isUpperTarget: false, type: 'exchange', unit: '円' },
+  { symbol: 'EURPLN=X', target: 4.35, isUpperTarget: true, type: 'exchange', unit: '円' },
+  
+  // 株
+  // { symbol: 'TECL', target: 135, isUpperTarget: true, type: 'stock', unit: '$' },
+  { symbol: 'INTC', target: 120, isUpperTarget: true, type: 'stock', unit: '$' },
+  // { symbol: 'VOO', target: 625, isUpperTarget: true, type: 'stock', unit: '$' },
+  // { symbol: 'TECL', target: 135, isUpperTarget: true, type: 'stock', unit: '$' },
+  { symbol: 'TSLA', target: 300, isUpperTarget: false, type: 'stock', unit: '$' },
+  // { symbol: 'PYPL', target: 55, isUpperTarget: false, type: 'stock', unit: '$' },
+  { symbol: 'VUAA.L', target: 143, isUpperTarget: false, type: 'stock', unit: '$' }, // Vanguard S&P 500 UCITS ETF (Acc) LSE USD建て
+  
+  // 暗号資産
+  { symbol: "ETH-USD", target: 3800, isUpperTarget: true, type: "crypto", unit: "USD"},
+  // { symbol: "ETH-USD", target: 4000, isUpperTarget: true, type: "crypto", unit: "USD"},
 
-// Google Apps ScriptではCommonJSやES Modulesのimport/exportが直接サポートされていないため、
-// グローバルスコープで定義するか、または`appsscript.json`の`dependencies`で管理する必要があります。
-// このファイルは`investment_alarm.js`と同じプロジェクトに含めることで、
-// `WATCH_LIST`がグローバルに利用可能になることを想定しています。
+  // Index
+  { symbol: "^VIX", target: 30, isUpperTarget: true, type: "index", unit: "" },
+];

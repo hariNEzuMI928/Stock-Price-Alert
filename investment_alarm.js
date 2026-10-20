@@ -2,114 +2,81 @@
  * 価格監視とSlack通知システム
  * Google Apps Script用
  */
-
-// 設定オブジェクト
+// 設定オブジェクト — 秘密は GAS Script Properties から取得
+// （GAS エディタ > プロジェクトの設定 > スクリプト プロパティ に SLACK_WEBHOOK_URL /
+//  ALPHA_VANTAGE_API_KEY / TODOIST_API_KEY を登録）
+const SCRIPT_PROPS = PropertiesService.getScriptProperties();
 const CONFIG = {
-  SLACK_WEBHOOK_URL: "",
-  ALPHA_VANTAGE_API_KEY: "",
-  TODOIST_API_KEY: "",
-  TODO_PROJECT_ID: "",
+  SLACK_WEBHOOK_URL: SCRIPT_PROPS.getProperty("SLACK_WEBHOOK_URL") || "",
+  ALPHA_VANTAGE_API_KEY: SCRIPT_PROPS.getProperty("ALPHA_VANTAGE_API_KEY") || "",
+  TODOIST_API_KEY: SCRIPT_PROPS.getProperty("TODOIST_API_KEY") || "",
+  TODO_PROJECT_ID: "2299385362",
   WEEKEND_DAYS: [0, 6], // 日曜日と土曜日
-  API_ENDPOINTS: {
-    STOCK:
-      "https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=5min&apikey={apiKey}",
-    EXCHANGE:
-      "https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={from}&to_currency={to}&apikey={apiKey}",
-  },
+  YAHOO_API: "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d"
 };
 
 /**
- * 価格データ取得インターフェース
+ * 価格データ取得クラス (Yahoo Finance統合版)
  */
 class PriceProvider {
-  constructor() {
-    this.apiKey = CONFIG.ALPHA_VANTAGE_API_KEY;
-  }
-
   /**
-   * タイプに応じて価格を取得
+   * どのタイプでもYahoo Financeから取得するように統一
    */
   getPrice(item) {
-    switch (item.type) {
-      case "stock":
-        return this.getStockPrice(item.symbol);
-      case "exchange":
-        return this.getExchangeRate(item.symbol);
-      default:
-        throw new Error(`未対応のタイプ: ${item.type}`);
-    }
+    return this.getYahooPrice(item.symbol);
   }
 
   /**
-   * 株価を取得
+   * Yahoo Financeから価格を取得
    */
-  getStockPrice(symbol) {
-    const url = this.buildStockUrl(symbol);
+  getYahooPrice(symbol) {
+    // URLエンコード
+    const encodedSymbol = encodeURIComponent(symbol);
+    const url = CONFIG.YAHOO_API.replace("{symbol}", encodedSymbol);
 
     try {
-      const response = UrlFetchApp.fetch(url);
-      const data = JSON.parse(response.getContentText());
-
-      const timeSeries = data["Time Series (5min)"];
-      if (!timeSeries) {
-        Logger.log(`株価データが見つかりません (${symbol}):`, data);
+      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (response.getResponseCode() !== 200) {
+        Logger.log(`Yahoo APIエラー (${symbol}): ${response.getContentText()}`);
         return 0;
       }
 
-      const latestTimestamp = Object.keys(timeSeries)[0];
-      const latestPrice = timeSeries[latestTimestamp]?.["4. close"] || 0;
-
-      Logger.log(`${symbol}の最新の株価: $${latestPrice}`);
-      return parseFloat(latestPrice);
-    } catch (error) {
-      Logger.log(`株価取得エラー (${symbol}): ${error.message}`);
-      return 0;
-    }
-  }
-
-  /**
-   * 為替レートを取得
-   */
-  getExchangeRate(currencyPair) {
-    const [fromCurrency, toCurrency] = currencyPair.split("/");
-    const url = this.buildExchangeUrl(fromCurrency, toCurrency);
-
-    try {
-      const response = UrlFetchApp.fetch(url);
       const data = JSON.parse(response.getContentText());
+      const result = data.chart?.result?.[0];
 
-      const exchangeRate =
-        data["Realtime Currency Exchange Rate"]?.["5. Exchange Rate"];
-      if (!exchangeRate) {
-        Logger.log(`為替レートデータが見つかりません (${currencyPair}):`, data);
+      if (!result || !result.meta) {
+        Logger.log(`データが見つかりません (${symbol}):`, data);
         return 0;
       }
 
-      Logger.log(`${currencyPair} 為替レート: ${exchangeRate}`);
-      return parseFloat(exchangeRate);
+      // regularMarketPrice (現在値) を取得
+      let currentPrice = result.meta.regularMarketPrice;
+
+      // 現在値がmetaにない場合（閉場時など）、indicatorsから最新の終値を探す
+      if (currentPrice === undefined || currentPrice === null) {
+        const quotes = result.indicators?.quote?.[0]?.close;
+        if (quotes && quotes.length > 0) {
+          for (let i = quotes.length - 1; i >= 0; i--) {
+            if (quotes[i] != null) {
+              currentPrice = quotes[i];
+              break;
+            }
+          }
+        }
+      }
+
+      if (currentPrice === undefined || currentPrice === null) {
+        Logger.log(`${symbol}の価格が取得できませんでした`);
+        return 0;
+      }
+
+      Logger.log(`${symbol}の最新価格: ${currentPrice}`);
+      return parseFloat(currentPrice);
+
     } catch (error) {
-      Logger.log(`為替レート取得エラー (${currencyPair}): ${error.message}`);
+      Logger.log(`取得エラー (${symbol}): ${error.message}`);
       return 0;
     }
-  }
-
-  /**
-   * 株価API URLを構築
-   */
-  buildStockUrl(symbol) {
-    return CONFIG.API_ENDPOINTS.STOCK.replace("{symbol}", symbol).replace(
-      "{apiKey}",
-      this.apiKey
-    );
-  }
-
-  /**
-   * 為替API URLを構築
-   */
-  buildExchangeUrl(from, to) {
-    return CONFIG.API_ENDPOINTS.EXCHANGE.replace("{from}", from)
-      .replace("{to}", to)
-      .replace("{apiKey}", this.apiKey);
   }
 }
 
@@ -121,11 +88,11 @@ class PriceMonitor {
     this.priceProvider = priceProvider;
   }
 
-  /**
-   * 価格がターゲットに達したかチェックし、通知メッセージを生成
-   */
   checkPriceTarget(item, currentPrice) {
     const { symbol, target, isUpperTarget, unit } = item;
+
+    // 表示用シンボルの調整（=Xなどを取って見やすくする）
+    const displaySymbol = symbol.replace("=X", "").replace("-USD", "");
 
     const shouldNotify = isUpperTarget
       ? currentPrice >= target
@@ -136,25 +103,16 @@ class PriceMonitor {
     }
 
     const direction = isUpperTarget ? "上回りました↑↑🎉" : "下回りました↓↓🎉";
-    return `${symbol}の価格が${target}${unit}を${direction} (${currentPrice}${unit})`;
+    return `${displaySymbol}の価格が${target}${unit}を${direction} (${currentPrice}${unit})`;
   }
 
-  /**
-   * 単一アイテムの価格チェック
-   */
   processItem(item) {
     try {
       const price = this.priceProvider.getPrice(item);
-      if (price === 0) {
-        Logger.log(`${item.symbol}の価格を取得できませんでした。`);
-        return null;
-      }
-
+      if (price === 0) return null;
       return this.checkPriceTarget(item, price);
     } catch (error) {
-      Logger.log(
-        `${item.symbol}の処理中にエラーが発生しました: ${error.message}`
-      );
+      Logger.log(`${item.symbol}の処理中にエラー: ${error.message}`);
       return null;
     }
   }
@@ -168,19 +126,10 @@ class SlackNotifier {
     this.webhookUrl = CONFIG.SLACK_WEBHOOK_URL;
   }
 
-  /**
-   * Slackに通知を送信
-   */
   sendNotification(message) {
-    if (!this.webhookUrl) {
-      Logger.log("Slack Webhook URLが設定されていません");
-      return;
-    }
+    if (!this.webhookUrl) return;
 
-    const payload = {
-      text: `<!channel> ${message}`,
-    };
-
+    const payload = { text: message };
     const options = {
       method: "POST",
       contentType: "application/json",
@@ -205,44 +154,27 @@ class TodoistTaskCreator {
     this.apiUrl = "https://api.todoist.com/rest/v2/tasks";
   }
 
-  /**
-   * Todoistにタスクを追加
-   */
   createTask(content) {
-    if (!this.apiKey) {
-      Logger.log("Todoist APIキーが設定されていません");
-      return;
-    }
+    if (!this.apiKey) return;
 
     const payload = {
       content: content,
       due_string: "Today",
-      priority: 4, // 優先度1 (最高)
+      priority: 4,
       project_id: CONFIG.TODO_PROJECT_ID,
     };
 
     const options = {
       method: "POST",
       contentType: "application/json",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers: { Authorization: `Bearer ${this.apiKey}` },
       payload: JSON.stringify(payload),
-      muteHttpExceptions: true, // エラー時にもレスポンスボディを読み込む
+      muteHttpExceptions: true,
     };
 
     try {
-      const response = UrlFetchApp.fetch(this.apiUrl, options);
-      const responseCode = response.getResponseCode();
-      const responseBody = response.getContentText();
-
-      if (responseCode === 200) {
-        Logger.log("Todoistタスク作成成功");
-      } else {
-        Logger.log(
-          `Todoistタスク作成エラー: ステータスコード ${responseCode}, レスポンス: ${responseBody}`
-        );
-      }
+      UrlFetchApp.fetch(this.apiUrl, options);
+      Logger.log("Todoistタスク作成成功");
     } catch (error) {
       Logger.log(`Todoistタスク作成例外: ${error.message}`);
     }
@@ -258,7 +190,7 @@ function isWeekend() {
 }
 
 /**
- * 価格監視システムのメインクラス
+ * メインシステム
  */
 class PriceMonitoringSystem {
   constructor() {
@@ -268,9 +200,6 @@ class PriceMonitoringSystem {
     this.todoistTaskCreator = new TodoistTaskCreator();
   }
 
-  /**
-   * 価格監視とSlack通知のメイン処理
-   */
   run() {
     if (isWeekend()) {
       Logger.log("今日は週末です。処理をスキップします。");
@@ -281,18 +210,12 @@ class PriceMonitoringSystem {
     this.sendNotifications(results);
   }
 
-  /**
-   * 監視リストの処理
-   */
   processWatchList() {
     return WATCH_LIST.map((item) => this.priceMonitor.processItem(item)).filter(
       (notification) => notification !== null
     );
   }
 
-  /**
-   * 通知の送信
-   */
   sendNotifications(notifications) {
     notifications.forEach((notification) => {
       Logger.log(notification);
@@ -303,40 +226,9 @@ class PriceMonitoringSystem {
 }
 
 /**
- * メイン実行関数（Google Apps Scriptのトリガー用）
+ * メイン実行関数
  */
 function checkAndSendNotifications() {
   const system = new PriceMonitoringSystem();
   system.run();
-}
-
-/**
- * 設定値の検証（初期設定時に使用）
- */
-function validateConfig() {
-  const errors = [];
-
-  if (!CONFIG.ALPHA_VANTAGE_API_KEY) {
-    errors.push("ALPHA_VANTAGE_API_KEYが設定されていません");
-  }
-
-  if (!CONFIG.SLACK_WEBHOOK_URL) {
-    errors.push("SLACK_WEBHOOK_URLが設定されていません");
-  }
-
-  if (!CONFIG.TODOIST_API_KEY) {
-    errors.push("TODOIST_API_KEYが設定されていません");
-  }
-
-  if (!CONFIG.TODO_PROJECT_ID) {
-    errors.push("TODO_PROJECT_IDが設定されていません");
-  }
-
-  if (errors.length > 0) {
-    Logger.log("設定エラー:", errors);
-    return false;
-  }
-
-  Logger.log("設定は正常です");
-  return true;
 }
