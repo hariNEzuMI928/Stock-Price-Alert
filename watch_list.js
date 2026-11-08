@@ -2,7 +2,7 @@ const WATCH_LIST = [
   // 為替
   // { symbol: 'EURJPY=X', target: 170, isUpperTarget: false, type: 'exchange', unit: '円' },
   // { symbol: 'EURJPY=X', target: 175, isUpperTarget: false, type: 'exchange', unit: '円' },
-  { symbol: 'EURPLN=X', target: 4.35, isUpperTarget: true, type: 'exchange', unit: '円' },
+  { symbol: 'EURPLN=X', target: 4.4, isUpperTarget: true, type: 'exchange', unit: '円' },
   
   // 株
   // { symbol: 'TECL', target: 135, isUpperTarget: true, type: 'stock', unit: '$' },
